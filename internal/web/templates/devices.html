@@ -1,0 +1,70 @@
+<div class="grid grid-cols-1 gap-8">
+{{ range . }}
+<div class="bg-slate-900/40 border border-slate-800/60 rounded-3xl overflow-hidden hover:border-slate-700/60 transition-all duration-500 shadow-2xl group relative">
+    <div class="p-8 flex flex-col gap-8">
+        <!-- Header Section -->
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
+            <div class="flex items-center gap-6">
+                <div class="w-16 h-16 shrink-0 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-center group-hover:bg-blue-900/10 group-hover:border-blue-500/30 transition-all duration-500 shadow-inner">
+                    {{ getDeviceIcon .Smart }}
+                </div>
+                <div>
+                    <div class="flex flex-wrap items-center gap-3 mb-1">
+                        <h2 class="text-2xl sm:text-3xl font-mono font-black text-white tracking-tight leading-none">{{ .Path }}</h2>
+                        <span class="px-3 py-1 bg-slate-800 text-blue-400 text-[10px] font-black uppercase rounded-lg border border-slate-700 tracking-wider">{{ .Size }}</span>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-500 uppercase tracking-tight">
+                        <span class="text-slate-400">{{ .Model }}</span>
+                        <span class="opacity-30">|</span>
+                        <span class="text-slate-600">S/N: {{ .Serial }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3 w-full sm:w-auto">
+                <button hx-get="/smart?device={{ .Path }}" 
+                        hx-target="#device-list"
+                        class="flex-1 sm:flex-none bg-slate-800 hover:bg-slate-700 text-blue-400 font-black py-2.5 px-6 rounded-xl border border-slate-700 text-[10px] tracking-widest uppercase transition-all active:scale-95 whitespace-nowrap">
+                    View SMART
+                </button>
+
+                <div id="test-status-{{ .ID }}-button" hx-on:hide-button-{{ .ID }}="this.remove()" class="flex-1 sm:flex-none">
+                    {{ if not .HasTest }}
+                        {{ if .IsMounted }}
+                        <div class="group/mount relative">
+                            <button disabled class="w-full bg-slate-950 text-slate-700 font-black py-2.5 px-6 rounded-xl border border-slate-800 text-[10px] tracking-widest uppercase cursor-not-allowed whitespace-nowrap">Run Test</button>
+                            <div class="absolute -bottom-8 right-0 bg-red-500/10 border border-red-500/20 px-2 py-1 rounded opacity-0 group-hover/mount:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                                <span class="text-[8px] text-red-500 font-black uppercase tracking-widest flex items-center gap-1">
+                                    <svg class="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                                    Device Mounted
+                                </span>
+                            </div>
+                        </div>
+                        {{ else }}
+                        <button hx-post="/start?device={{ .Path }}" 
+                                hx-target="#test-status-{{ .ID }}-container"
+                                hx-swap="innerHTML"
+                                hx-confirm="WARNING: This will DESTROY ALL DATA on {{ .Path }}. Are you sure?"
+                                class="w-full bg-blue-600 hover:bg-blue-500 text-white font-black py-2.5 px-8 rounded-xl shadow-lg shadow-blue-500/20 transition-all active:scale-95 text-[10px] tracking-widest uppercase border-t border-blue-400/40 whitespace-nowrap">
+                            Run Test
+                        </button>
+                        {{ end }}
+                    {{ end }}
+                </div>
+            </div>
+        </div>
+
+        <!-- Work Area -->
+        <div id="test-status-{{ .ID }}-container" class="w-full">
+            {{ if .HasTest }}
+                <div hx-get="/status?device={{ .Path }}" hx-trigger="load" hx-swap="outerHTML" class="flex items-center justify-center p-8">
+                    <div class="animate-pulse text-slate-600 font-mono text-[10px] uppercase tracking-widest italic">Interrogating Processor...</div>
+                </div>
+            {{ else }}
+                <div class="h-[2px] bg-slate-800/50 rounded-full"></div>
+            {{ end }}
+        </div>
+    </div>
+</div>
+{{ end }}
+</div>

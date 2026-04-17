@@ -1,0 +1,149 @@
+<div class="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <!-- Breadcrumb / Back Button -->
+    <nav class="flex items-center gap-4">
+        <button hx-get="/devices" hx-target="#device-list" class="flex items-center gap-2 text-slate-500 hover:text-blue-400 transition-colors group">
+            <svg class="w-5 h-5 transition-transform group-hover:-translate-x-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
+            </svg>
+            <span class="text-[10px] font-black uppercase tracking-widest">Back to Nodes</span>
+        </button>
+        <span class="text-slate-800">/</span>
+        <span class="text-[10px] font-black uppercase tracking-widest text-slate-400">SMART Report</span>
+    </nav>
+
+    <!-- Header Card -->
+    <div class="bg-slate-900/40 border border-slate-800/60 rounded-3xl p-8 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6 shadow-2xl relative overflow-hidden">
+        <div class="absolute top-0 right-0 p-12 opacity-5 pointer-events-none">
+            <svg class="w-48 h-48 text-blue-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"></path></svg>
+        </div>
+
+        <div class="flex items-center gap-6 z-10">
+            <div class="w-20 h-20 shrink-0 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-center shadow-inner">
+                {{ getDeviceIcon .Report.Info }}
+            </div>
+            <div>
+                <div class="flex items-center gap-3 mb-1">
+                    <h2 class="text-3xl font-black text-white tracking-tight leading-none">{{ .Path }}</h2>
+                    <span class="px-3 py-1 bg-blue-600/10 text-blue-400 text-[10px] font-black uppercase rounded-lg border border-blue-500/20 tracking-wider">{{ .Report.Info.Protocol }}</span>
+                </div>
+                <div class="flex flex-col gap-1">
+                    <span class="text-sm font-mono text-slate-400 uppercase tracking-tight">{{ .Report.Info.Model }}</span>
+                    <span class="text-[10px] font-mono text-slate-600 uppercase tracking-widest">SN: {{ .Report.Info.Serial }}</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex flex-col items-end gap-2 z-10">
+            <span class="text-[10px] font-black uppercase tracking-[0.2em] {{ if .Report.Info.IsFailing }}text-red-400{{ else }}text-emerald-400{{ end }}">Device Health</span>
+            <div class="flex items-center gap-3 bg-slate-950/60 px-6 py-3 rounded-2xl border border-slate-800/60">
+                <div class="w-2.5 h-2.5 rounded-full {{ if .Report.Info.IsFailing }}bg-red-500 animate-pulse{{ else }}bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.4)]{{ end }}"></div>
+                <span class="text-2xl font-mono font-black {{ if .Report.Info.IsFailing }}text-red-400{{ else }}text-emerald-400{{ end }} tracking-tighter">{{ .Report.Info.Status }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Stats Grid -->
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div class="bg-slate-900/40 p-6 rounded-2xl border border-slate-800/40 flex flex-col gap-2">
+            <span class="text-[9px] text-slate-600 font-black uppercase tracking-[0.2em]">Current Temp</span>
+            <span class="text-3xl font-mono font-black {{ if ge .Report.Info.Temperature 55 }}text-red-400{{ else if ge .Report.Info.Temperature 45 }}text-amber-400{{ else }}text-emerald-400{{ end }}">{{ .Report.Info.Temperature }}°C</span>
+        </div>
+        <div class="bg-slate-900/40 p-6 rounded-2xl border border-slate-800/40 flex flex-col gap-2">
+            <span class="text-[9px] text-slate-600 font-black uppercase tracking-[0.2em]">Power On Hours</span>
+            <span class="text-3xl font-mono font-black text-white">{{ .Report.Info.PowerOnHours }} <span class="text-xs text-slate-500 font-bold uppercase">hrs</span></span>
+        </div>
+        <div class="bg-slate-900/40 p-6 rounded-2xl border border-slate-800/40 flex flex-col gap-2">
+            <span class="text-[9px] text-slate-600 font-black uppercase tracking-[0.2em]">Power Cycles</span>
+            <span class="text-3xl font-mono font-black text-white">{{ .Report.Info.PowerCycles }}</span>
+        </div>
+        <div class="bg-slate-900/40 p-6 rounded-2xl border border-slate-800/40 flex flex-col gap-2">
+            <span class="text-[9px] text-slate-600 font-black uppercase tracking-[0.2em]">{{ if eq .Report.Info.DataMetric "data_written" }}Data Written{{ else if eq .Report.Info.DataMetric "grown_defects" }}Grown Defects{{ else }}Realloc. Sectors{{ end }}</span>
+            <span class="text-3xl font-mono font-black text-white">
+                {{ if eq .Report.Info.DataMetric "data_written" }}
+                    {{ if gt .Report.Info.DataValue 1024 }}{{ printf "%.1f" (fdiv .Report.Info.DataValue 1024) }}<span class="text-xs text-slate-500 font-bold uppercase">tb</span>{{ else }}{{ .Report.Info.DataValue }}<span class="text-xs text-slate-500 font-bold uppercase">gb</span>{{ end }}
+                {{ else }}
+                    {{ .Report.Info.DataValue }}
+                {{ end }}
+            </span>
+        </div>
+    </div>
+
+    {{ if .Report.Attributes }}
+    <!-- ATA Attributes Table -->
+    <div class="bg-slate-900/40 border border-slate-800/60 rounded-3xl overflow-hidden shadow-2xl">
+        <div class="px-8 py-6 border-b border-slate-800/60 flex items-center justify-between">
+            <h3 class="text-sm font-black text-white uppercase tracking-widest">SATA SMART Attributes</h3>
+            <span class="text-[10px] text-slate-500 font-mono">{{ len .Report.Attributes }} Attributes Tracked</span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="text-[10px] font-black text-slate-500 uppercase tracking-widest border-b border-slate-800/40">
+                        <th class="px-8 py-4">ID</th>
+                        <th class="px-8 py-4">Attribute Name</th>
+                        <th class="px-8 py-4">Value</th>
+                        <th class="px-8 py-4">Worst</th>
+                        <th class="px-8 py-4">Thresh</th>
+                        <th class="px-8 py-4">Raw Value</th>
+                        <th class="px-8 py-4">Flags</th>
+                        <th class="px-8 py-4">Status</th>
+                    </tr>
+                </thead>
+                <tbody class="font-mono text-xs">
+                    {{ range .Report.Attributes }}
+                    <tr class="border-b border-slate-800/40 hover:bg-slate-800/20 transition-colors group">
+                        <td class="px-8 py-4 text-slate-600">{{ printf "%03d" .ID }}</td>
+                        <td class="px-8 py-4 font-bold text-slate-300 group-hover:text-blue-400 transition-colors">{{ .Name }}</td>
+                        <td class="px-8 py-4 text-slate-100">{{ .Value }}</td>
+                        <td class="px-8 py-4 text-slate-400">{{ .Worst }}</td>
+                        <td class="px-8 py-4 text-slate-600">{{ .Threshold }}</td>
+                        <td class="px-8 py-4 text-slate-300">{{ .RawValue }}</td>
+                        <td class="px-8 py-4 text-[10px] text-slate-500">{{ .Flags }}</td>
+                        <td class="px-8 py-4">
+                            <span class="px-2 py-0.5 rounded text-[9px] font-black uppercase {{ if eq .Status "FAILED" }}bg-red-500/10 text-red-500 border border-red-500/20{{ else }}bg-emerald-500/10 text-emerald-500 border border-emerald-500/20{{ end }}">
+                                {{ .Status }}
+                            </span>
+                        </td>
+                    </tr>
+                    {{ end }}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {{ end }}
+
+    {{ if .Report.NVMeLog }}
+    <!-- NVMe Specific Log Page -->
+    <div class="bg-slate-900/40 border border-slate-800/60 rounded-3xl overflow-hidden shadow-2xl">
+        <div class="px-8 py-6 border-b border-slate-800/60">
+            <h3 class="text-sm font-black text-white uppercase tracking-widest">NVMe SMART / Health Log</h3>
+        </div>
+        <div class="p-8 grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-6">
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical Warning</span>
+                <span class="text-xs font-mono {{ if gt .Report.NVMeLog.CritWarning 0 }}text-red-400{{ else }}text-emerald-400{{ end }}">{{ printf "0x%02x" .Report.NVMeLog.CritWarning }}</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Percentage Used</span>
+                <span class="text-xs font-mono {{ if ge .Report.NVMeLog.PercentUsed 90 }}text-amber-400{{ else }}text-white{{ end }}">{{ .Report.NVMeLog.PercentUsed }}%</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Available Spare</span>
+                <span class="text-xs font-mono text-white">{{ .Report.NVMeLog.AvailSpare }}% (Thresh: {{ .Report.NVMeLog.SpareThresh }}%)</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Media Errors</span>
+                <span class="text-xs font-mono {{ if gt (index .Report.NVMeLog.MediaErrors.Val 0) 0 }}text-red-400{{ else }}text-white{{ end }}">{{ index .Report.NVMeLog.MediaErrors.Val 0 }}</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Unsafe Shutdowns</span>
+                <span class="text-xs font-mono text-white">{{ index .Report.NVMeLog.UnsafeShutdowns.Val 0 }}</span>
+            </div>
+            <div class="flex justify-between items-center py-2 border-b border-slate-800/40">
+                <span class="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Controller Busy Time</span>
+                <span class="text-xs font-mono text-white">{{ index .Report.NVMeLog.CtrlBusyTime.Val 0 }} min</span>
+            </div>
+        </div>
+    </div>
+    {{ end }}
+</div>

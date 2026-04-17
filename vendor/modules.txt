@@ -1,0 +1,7 @@
+# github.com/anatol/smart.go v0.0.0-20260314002218-4abf60ecc43c => ./local/smart.go
+## explicit; go 1.26
+github.com/anatol/smart.go
+# golang.org/x/sys v0.42.0
+## explicit; go 1.25.0
+golang.org/x/sys/unix
+# github.com/anatol/smart.go => ./local/smart.go
