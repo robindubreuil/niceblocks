@@ -73,11 +73,6 @@ type DiskTester struct {
 	// Log of significant events
 	events []string
 
-	// Optional: user-configured thresholds (if set, these override calculated values)
-	userPauseTemp    *int // User-specified pause threshold (nil = use calculated)
-	userResumeTemp   *int // User-specified resume threshold (nil = use calculated)
-	userCriticalTemp *int // User-specified critical threshold (nil = use calculated)
-
 	// SMART monitoring baseline
 	baselineReallocatedSectors int64      // Initial reallocated sector count
 	lastKnownTemperature       int        // Last known temperature (always available)
@@ -93,19 +88,21 @@ type DiskTester struct {
 	blockSpeedCount            map[int]int     // Number of reported speed samples per block index
 }
 
-func NewDiskTester(devicePath string) *DiskTester {
+func NewDiskTester(devicePath string) (*DiskTester, error) {
 	key := make([]byte, 32)
-	_, _ = rand.Read(key) // Generate a random key for this test run
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("failed to generate cryptographic key: %w", err)
+	}
 
 	return &DiskTester{
 		DevicePath:      devicePath,
-		BlockSize:       32 * 1024 * 1024, // 32MB block size
+		BlockSize:       32 * 1024 * 1024,
 		Key:             key,
 		events:          []string{"Initializing engine..."},
 		readSpeeds:      make(map[int]float64),
 		blockSpeedSum:   make(map[int]float64),
 		blockSpeedCount: make(map[int]int),
-	}
+	}, nil
 }
 
 func (dt *DiskTester) logEvent(msg string) {
@@ -163,7 +160,7 @@ func (dt *DiskTester) sendProgressUpdate(progressChan chan<- Progress, status st
 	eventsCopy := make([]string, len(dt.events))
 	copy(eventsCopy, dt.events)
 
-	progressChan <- Progress{
+	progress := Progress{
 		Status:           status,
 		StatusMsg:        msg,
 		Percentage:       percentage,
@@ -182,6 +179,10 @@ func (dt *DiskTester) sendProgressUpdate(progressChan chan<- Progress, status st
 		ResumeTemp:       dt.resumeTemp,
 		CriticalTemp:     dt.criticalTemp,
 		ReadSpeeds:       readSpeedsCopy,
+	}
+	select {
+	case progressChan <- progress:
+	default:
 	}
 }
 
@@ -231,42 +232,26 @@ func (dt *DiskTester) generatePattern(block cipher.Block, buffer []byte, zeroSrc
 
 // calculateTempThresholds calculates temperature thresholds based on idle temperature
 func (dt *DiskTester) calculateTempThresholds(idleTemp int) {
-	// Use user-specified thresholds if provided, otherwise calculate
-	if dt.userPauseTemp != nil {
-		dt.pauseTemp = *dt.userPauseTemp
-	} else {
-		// Calculate pause threshold: idle + 20%, with min/max bounds
-		calculatedPause := int(float64(idleTemp) * (1.0 + float64(DefaultIdleTempIncreasePercent)/100.0))
-		if calculatedPause < MinPauseThreshold {
-			calculatedPause = MinPauseThreshold
-		}
-		if calculatedPause > MaxPauseThreshold {
-			calculatedPause = MaxPauseThreshold
-		}
-		dt.pauseTemp = calculatedPause
+	calculatedPause := int(float64(idleTemp) * (1.0 + float64(DefaultIdleTempIncreasePercent)/100.0))
+	if calculatedPause < MinPauseThreshold {
+		calculatedPause = MinPauseThreshold
 	}
+	if calculatedPause > MaxPauseThreshold {
+		calculatedPause = MaxPauseThreshold
+	}
+	dt.pauseTemp = calculatedPause
 
-	if dt.userResumeTemp != nil {
-		dt.resumeTemp = *dt.userResumeTemp
-	} else {
-		// Calculate resume threshold with hysteresis
-		calculatedResume := dt.pauseTemp - DefaultHysteresis
-		if calculatedResume < 0 {
-			calculatedResume = 0
-		}
-		dt.resumeTemp = calculatedResume
+	calculatedResume := dt.pauseTemp - DefaultHysteresis
+	if calculatedResume < 0 {
+		calculatedResume = 0
 	}
+	dt.resumeTemp = calculatedResume
 
-	if dt.userCriticalTemp != nil {
-		dt.criticalTemp = *dt.userCriticalTemp
-	} else {
-		// Calculate critical threshold
-		calculatedCritical := dt.pauseTemp + DefaultCriticalOffset
-		if calculatedCritical > MaxCriticalThreshold {
-			calculatedCritical = MaxCriticalThreshold
-		}
-		dt.criticalTemp = calculatedCritical
+	calculatedCritical := dt.pauseTemp + DefaultCriticalOffset
+	if calculatedCritical > MaxCriticalThreshold {
+		calculatedCritical = MaxCriticalThreshold
 	}
+	dt.criticalTemp = calculatedCritical
 
 	dt.idleTemp = idleTemp
 }
@@ -348,7 +333,12 @@ func (dt *DiskTester) Run(ctx context.Context, progressChan chan<- Progress) {
 		return
 	}
 
-	_ = file.Sync()
+	if err := file.Sync(); err != nil {
+		msg := fmt.Sprintf("Sync failed after write phase: %v", err)
+		dt.logEvent("Error: " + msg)
+		dt.sendProgressUpdate(progressChan, "error", msg, "writing", size, size, startTime, false)
+		return
+	}
 	dt.logEvent("Phase WRITING completed. Starting VERIFYING...")
 
 	if !dt.processPhase(ctx, "verifying", file, size, block, progressChan, startTime) {
@@ -562,7 +552,12 @@ func (dt *DiskTester) processPhase(
 			}
 
 			if bytesSinceLastSync >= syncThreshold {
-				_ = file.Sync()
+				if err := file.Sync(); err != nil {
+					msg := fmt.Sprintf("Sync error at offset %d: %v", offset, err)
+					dt.logEvent("Error: " + msg)
+					dt.sendProgressUpdate(progressChan, "error", msg, phase, offset, size, testStartTime, false)
+					return false
+				}
 				bytesSinceLastSync = 0
 				dt.firstSyncDone = true
 				dt.syncCount++

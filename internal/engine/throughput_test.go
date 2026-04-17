@@ -31,10 +31,13 @@ func TestThroughputStabilization(t *testing.T) {
 	}
 	tmpFile.Close()
 
-	tester := NewDiskTester(tmpFile.Name())
+	tester, err := NewDiskTester(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create tester: %v", err)
+	}
 	// Set small block size to get more updates
-	tester.BlockSize = 8 * 1024 * 1024 
-	
+	tester.BlockSize = 8 * 1024 * 1024
+
 	progressChan := make(chan Progress, 1000)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -51,13 +54,13 @@ func TestThroughputStabilization(t *testing.T) {
 			if p.Throughput > maxThroughput {
 				maxThroughput = p.Throughput
 			}
-			
+
 			if p.Throughput > 100*1024*1024*1024 {
 				t.Errorf("Detected suspicious throughput spike: %.2f GB/s at offset %d", p.Throughput/(1024*1024*1024), p.BytesProcessed)
 			}
 		}
 	}
-	
+
 	if !nonZeroThroughputSeen {
 		t.Log("Warning: No non-zero throughput was reported (test might be too fast or file too small for stabilization)")
 	}

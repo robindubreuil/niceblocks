@@ -48,6 +48,9 @@ func readSmartInfoNVMe(d *smart.NVMeDevice) (*SmartInfo, *smart.NvmeSMARTLog) {
 	sm, err := d.ReadSMART()
 	if err == nil {
 		info.Temperature = int(sm.Temperature) - 273
+		if info.Temperature < 0 {
+			info.Temperature = 0
+		}
 		info.PowerOnHours = sm.PowerOnHours.Val[0]
 		info.PowerCycles = sm.PowerCycles.Val[0]
 		info.DataMetric = "data_written"

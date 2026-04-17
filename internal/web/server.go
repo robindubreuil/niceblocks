@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"niceblocks/internal/engine"
 	"os"
 	"os/exec"
@@ -28,10 +29,11 @@ import (
 var webFS embed.FS
 
 type activeTest struct {
-	cancel   context.CancelFunc
-	tester   *engine.DiskTester
-	stopping bool
-	done     bool
+	cancel       context.CancelFunc
+	tester       *engine.DiskTester
+	stopping     bool
+	done         bool
+	cleanupTimer *time.Timer
 }
 
 type Server struct {
@@ -117,20 +119,7 @@ func NewServer() *Server {
 }
 
 func (s *Server) authHandler(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if s.Password == "" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		user, pass, ok := r.BasicAuth()
-		if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Password)) != 1 {
-			w.Header().Set("WWW-Authenticate", `Basic realm="NiceBlocks"`)
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
-		}
-
-		_ = user
+	return s.authMiddleware(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)
 	})
 }
@@ -142,14 +131,13 @@ func (s *Server) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 
-		user, pass, ok := r.BasicAuth()
+		_, pass, ok := r.BasicAuth()
 		if !ok || subtle.ConstantTimeCompare([]byte(pass), []byte(s.Password)) != 1 {
 			w.Header().Set("WWW-Authenticate", `Basic realm="NiceBlocks"`)
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
 
-		_ = user
 		next(w, r)
 	}
 }
@@ -215,6 +203,9 @@ func (s *Server) cancelAllTests() {
 		if !test.done {
 			fmt.Printf("  Cancelling test on %s...\n", device)
 			test.cancel()
+		}
+		if test.cleanupTimer != nil {
+			test.cleanupTimer.Stop()
 		}
 	}
 	s.mu.Unlock()
@@ -338,7 +329,12 @@ func (s *Server) handleStartTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	tester := engine.NewDiskTester(device)
+	tester, err := engine.NewDiskTester(device)
+	if err != nil {
+		cancel()
+		http.Error(w, fmt.Sprintf("Failed to initialize tester: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	s.mu.Lock()
 	s.activeTests[device] = &activeTest{
@@ -352,11 +348,6 @@ func (s *Server) handleStartTest(w http.ResponseWriter, r *http.Request) {
 	if smartErr == nil {
 		initialProgress.Smart = smartInfo
 		initialProgress.Temperature = smartInfo.Temperature
-		initialProgress.IdleTemp = smartInfo.Temperature
-		initialProgress.PauseTemp = 60
-		if smartInfo.Temperature > 50 {
-			initialProgress.PauseTemp = smartInfo.Temperature + 10
-		}
 	}
 	s.latestProgress[device] = initialProgress
 	s.mu.Unlock()
@@ -375,25 +366,27 @@ func (s *Server) handleStartTest(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		if t, ok := s.activeTests[device]; ok {
 			t.done = true
+			t.cleanupTimer = time.AfterFunc(5*time.Minute, func() {
+				s.mu.Lock()
+				if t, ok := s.activeTests[device]; ok && t.done {
+					delete(s.activeTests, device)
+					delete(s.latestProgress, device)
+				}
+				s.mu.Unlock()
+			})
 		}
 		s.mu.Unlock()
-
-		go func() {
-			time.Sleep(5 * time.Minute)
-			s.mu.Lock()
-			if t, ok := s.activeTests[device]; ok && t.done {
-				delete(s.activeTests, device)
-				delete(s.latestProgress, device)
-			}
-			s.mu.Unlock()
-		}()
 	}()
 
 	id := sanitizeID(device)
 	w.Header().Set("HX-Trigger", fmt.Sprintf(`{"hide-button-%s": true}`, id))
 
-	r.URL.RawQuery = "device=" + device
-	s.handleStatus(w, r)
+	statusReq := r.Clone(r.Context())
+	statusReq.URL = &url.URL{
+		Path:     "/status",
+		RawQuery: "device=" + url.QueryEscape(device),
+	}
+	s.handleStatus(w, statusReq)
 }
 
 type BlockState int

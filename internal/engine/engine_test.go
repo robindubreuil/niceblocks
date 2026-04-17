@@ -32,7 +32,10 @@ func TestDiskTester(t *testing.T) {
 	}
 	tmpFile.Close()
 
-	tester := NewDiskTester(tmpFile.Name())
+	tester, err := NewDiskTester(tmpFile.Name())
+	if err != nil {
+		t.Fatalf("Failed to create tester: %v", err)
+	}
 
 	progressChan := make(chan Progress, 100)
 	ctx := context.Background()
