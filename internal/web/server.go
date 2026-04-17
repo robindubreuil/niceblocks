@@ -51,24 +51,45 @@ func NewServer() *Server {
 			return float64(a) / float64(b)
 		},
 		"formatThroughput": formatThroughput,
-		"getBlockColor": func(state BlockState, index int, speeds map[int]float64, avgSpeed float64) string {
+		"getBlockColor": func(state BlockState, index int, readSpeeds map[int]float64, writeSpeeds map[int]float64, avgReadSpeed float64, avgWriteSpeed float64, status string) string {
 			switch state {
 			case 0:
-				return "bg-slate-950"
+				return "bg-slate-900"
 			case 1:
 				return "bg-blue-500 shadow-[inset_0_0_8px_rgba(59,130,246,0.5)] animate-pulse"
 			case 2:
-				return "bg-blue-900/60"
+				speed, ok := writeSpeeds[index]
+				if !ok || avgWriteSpeed <= 0 {
+					return "bg-blue-900/60"
+				}
+				ratio := speed / avgWriteSpeed
+				if ratio > 1.2 {
+					return "bg-blue-400"
+				}
+				if ratio > 1.0 {
+					return "bg-blue-500"
+				}
+				if ratio > 0.8 {
+					return "bg-blue-600"
+				}
+				if ratio > 0.6 {
+					return "bg-blue-700"
+				}
+				if ratio > 0.4 {
+					return "bg-blue-800"
+				}
+				return "bg-blue-900"
 			case 3:
 				return "bg-emerald-400 shadow-[inset_0_0_8px_rgba(52,211,153,0.5)] animate-pulse"
 			case 4:
-				speed, ok := speeds[index]
-				if !ok || avgSpeed <= 0 {
+				if status == "done" {
+					return ""
+				}
+				speed, ok := readSpeeds[index]
+				if !ok || avgReadSpeed <= 0 {
 					return "bg-emerald-600"
 				}
-				// Adjust green intensity based on speed relative to average
-				// Range: emerald-900 (slow) to emerald-400 (fast)
-				ratio := speed / avgSpeed
+				ratio := speed / avgReadSpeed
 				if ratio > 1.2 {
 					return "bg-emerald-400"
 				}
@@ -88,8 +109,42 @@ func NewServer() *Server {
 			case 5:
 				return "bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.4)] animate-bounce"
 			default:
-				return "bg-slate-950"
+				return "bg-slate-900"
 			}
+		},
+		"getBlockHeatStyle": func(index int, readSpeeds map[int]float64, writeSpeeds map[int]float64, avgReadSpeed float64, avgWriteSpeed float64) string {
+			ratio := 0.0
+			count := 0
+
+			if speed, ok := readSpeeds[index]; ok && speed > 0 && avgReadSpeed > 0 {
+				ratio += speed / avgReadSpeed
+				count++
+			}
+			if speed, ok := writeSpeeds[index]; ok && speed > 0 && avgWriteSpeed > 0 {
+				ratio += speed / avgWriteSpeed
+				count++
+			}
+
+			if count == 0 {
+				return "background-color: hsl(220, 30%, 15%)"
+			}
+
+			ratio /= float64(count)
+
+			if ratio < 0.2 {
+				ratio = 0.2
+			}
+			if ratio > 1.5 {
+				ratio = 1.5
+			}
+
+			t := (ratio - 0.2) / 1.3
+
+			hue := 230 - t*75
+			sat := 45 + t*35
+			light := 18 + t*32
+
+			return fmt.Sprintf("background-color: hsl(%d, %d%%, %d%%)", int(hue), int(sat), int(light))
 		},
 		"getDeviceIcon": func(smartInfo *engine.SmartInfo) template.HTML {
 			if smartInfo == nil {
@@ -482,6 +537,30 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	avgReadSpeed := 0.0
+	readCount := 0
+	for _, v := range progress.ReadSpeeds {
+		if v > 0 {
+			avgReadSpeed += v
+			readCount++
+		}
+	}
+	if readCount > 0 {
+		avgReadSpeed /= float64(readCount)
+	}
+
+	avgWriteSpeed := 0.0
+	writeCount := 0
+	for _, v := range progress.WriteSpeeds {
+		if v > 0 {
+			avgWriteSpeed += v
+			writeCount++
+		}
+	}
+	if writeCount > 0 {
+		avgWriteSpeed /= float64(writeCount)
+	}
+
 	data := struct {
 		Path             string
 		ID               string
@@ -495,6 +574,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ETA              string
 		Blocks           []BlockState
 		ReadSpeeds       map[int]float64
+		WriteSpeeds      map[int]float64
+		AvgReadSpeed     float64
+		AvgWriteSpeed    float64
 		Smart            *engine.SmartInfo
 		RecentEvents     []string
 		Temperature      int
@@ -517,6 +599,9 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		ETA:              formatETA(progress.ETA, progress.Throughput),
 		Blocks:           blocks,
 		ReadSpeeds:       progress.ReadSpeeds,
+		WriteSpeeds:      progress.WriteSpeeds,
+		AvgReadSpeed:     avgReadSpeed,
+		AvgWriteSpeed:    avgWriteSpeed,
 		Smart:            smartInfo,
 		RecentEvents:     progress.RecentEvents,
 		Temperature:      progress.Temperature,

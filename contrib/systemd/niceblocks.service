@@ -1,0 +1,12 @@
+[Unit]
+Description=NiceBlocks Disk Tester
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/niceblocks
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

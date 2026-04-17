@@ -44,6 +44,7 @@ type Progress struct {
 	StartTime      time.Time       `json:"start_time"`
 	RecentEvents   []string        `json:"recent_events"` // History of significant events
 	ReadSpeeds     map[int]float64 `json:"read_speeds"`   // Throughput per block index (0-399) during verification
+	WriteSpeeds    map[int]float64 `json:"write_speeds"`  // Throughput per block index (0-399) during writing
 
 	// SMART monitoring fields
 	Smart            *SmartInfo `json:"smart"`             // Full SMART info (cached)
@@ -87,6 +88,9 @@ type DiskTester struct {
 	readSpeeds                 map[int]float64 // Final/averaged Throughput per block index (0-399)
 	blockSpeedSum              map[int]float64 // Sum of reported speeds per block index
 	blockSpeedCount            map[int]int     // Number of reported speed samples per block index
+	writeSpeeds                map[int]float64 // Final/averaged write throughput per block index (0-399)
+	writeBlockSpeedSum         map[int]float64 // Sum of reported write speeds per block index
+	writeBlockSpeedCount       map[int]int     // Number of reported write speed samples per block index
 }
 
 func NewDiskTester(devicePath string) (*DiskTester, error) {
@@ -100,9 +104,12 @@ func NewDiskTester(devicePath string) (*DiskTester, error) {
 		BlockSize:       32 * 1024 * 1024,
 		Key:             key,
 		events:          []string{"Initializing engine..."},
-		readSpeeds:      make(map[int]float64),
-		blockSpeedSum:   make(map[int]float64),
-		blockSpeedCount: make(map[int]int),
+		readSpeeds:          make(map[int]float64),
+		blockSpeedSum:       make(map[int]float64),
+		blockSpeedCount:     make(map[int]int),
+		writeSpeeds:         make(map[int]float64),
+		writeBlockSpeedSum:  make(map[int]float64),
+		writeBlockSpeedCount: make(map[int]int),
 	}, nil
 }
 
@@ -153,6 +160,11 @@ func (dt *DiskTester) sendProgressUpdate(progressChan chan<- Progress, status st
 		readSpeedsCopy[k] = v
 	}
 
+	writeSpeedsCopy := make(map[int]float64)
+	for k, v := range dt.writeSpeeds {
+		writeSpeedsCopy[k] = v
+	}
+
 	var reallocatedDelta int64
 	if dt.lastSmartInfo != nil && dt.lastSmartInfo.DataMetric == "reallocated_sectors" {
 		reallocatedDelta = int64(dt.lastSmartInfo.DataValue) - dt.baselineReallocatedSectors
@@ -180,6 +192,7 @@ func (dt *DiskTester) sendProgressUpdate(progressChan chan<- Progress, status st
 		ResumeTemp:       dt.resumeTemp,
 		CriticalTemp:     dt.criticalTemp,
 		ReadSpeeds:       readSpeedsCopy,
+		WriteSpeeds:      writeSpeedsCopy,
 	}
 	select {
 	case progressChan <- progress:
@@ -532,18 +545,38 @@ func (dt *DiskTester) processPhase(
 				}
 
 				for i := startIdx; i <= endIdx; i++ {
-					// Add the current highly stable reported speed to this block's total
 					speedToLog := dt.currentReportedBps
 					if speedToLog == 0 {
-						// Fallback if stable speed isn't ready yet
 						speedToLog = float64(currentChunkSize) / blockElapsed.Seconds()
 					}
 
 					dt.blockSpeedSum[i] += speedToLog
 					dt.blockSpeedCount[i]++
 
-					// Update the displayed value as a true average of all samples taken while inside this block
 					dt.readSpeeds[i] = dt.blockSpeedSum[i] / float64(dt.blockSpeedCount[i])
+				}
+			}
+		}
+
+		if phase == "writing" && blockElapsed > 0 && dt.currentReportedBps > 0 {
+			startIdx := int((float64(offset) / float64(size)) * GridBlocks)
+			endIdx := int((float64(offset+currentChunkSize-1) / float64(size)) * GridBlocks)
+
+			if startIdx >= 0 && startIdx < GridBlocks {
+				if endIdx >= GridBlocks {
+					endIdx = GridBlocks - 1
+				}
+
+				for i := startIdx; i <= endIdx; i++ {
+					speedToLog := dt.currentReportedBps
+					if speedToLog == 0 {
+						speedToLog = float64(currentChunkSize) / blockElapsed.Seconds()
+					}
+
+					dt.writeBlockSpeedSum[i] += speedToLog
+					dt.writeBlockSpeedCount[i]++
+
+					dt.writeSpeeds[i] = dt.writeBlockSpeedSum[i] / float64(dt.writeBlockSpeedCount[i])
 				}
 			}
 		}

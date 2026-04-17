@@ -73,7 +73,7 @@ func TestHandleIndex(t *testing.T) {
 		t.Fatalf("Expected 200, got %d: %s", w.Code, w.Body.String())
 	}
 	body := w.Body.String()
-	if !strings.Contains(body, "NICE") || !strings.Contains(body, "BLOCKS") {
+	if !strings.Contains(body, "nice") || !strings.Contains(body, "blocks") {
 		t.Errorf("Response should contain app name. Body length=%d", len(body))
 	}
 	if !strings.Contains(body, `meta name="csrf-token"`) {

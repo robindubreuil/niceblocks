@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - run: go test -race -count=1 ./...
+
+  build:
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/v')
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goarch: amd64
+            debarch: amd64
+          - goarch: arm64
+            debarch: arm64
+          - goarch: arm
+            goarm: "7"
+            debarch: armhf
+          - goarch: riscv64
+            debarch: riscv64
+          - goarch: arm
+            goarm: "5"
+            debarch: armel
+          - goarch: "386"
+            debarch: i386
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build binary
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: 0
+        run: |
+          go build -trimpath -ldflags="-s -w" -o niceblocks ./cmd/niceblocks
+      - name: Create .deb package
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG_DIR="niceblocks_${VERSION}_${{ matrix.debarch }}"
+          mkdir -p "$PKG_DIR/DEBIAN" "$PKG_DIR/usr/bin" "$PKG_DIR/usr/lib/systemd/system"
+          cp niceblocks "$PKG_DIR/usr/bin/"
+          chmod 755 "$PKG_DIR/usr/bin/niceblocks"
+          cp contrib/systemd/niceblocks.service "$PKG_DIR/usr/lib/systemd/system/"
+          cat > "$PKG_DIR/DEBIAN/control" << EOF
+          Package: niceblocks
+          Version: ${VERSION}
+          Section: utils
+          Priority: optional
+          Architecture: ${{ matrix.debarch }}
+          Depends: lsblk
+          Maintainer: Robin Dubreuil <63008968+robindubreuil@users.noreply.github.com>
+          Description: Modern alternative to badblocks with web UI
+           NiceBlocks is a Go-based disk testing tool that performs
+           thorough read-write verification using random data patterns.
+           It features a responsive web dashboard built with HTMX and
+           Tailwind CSS, SMART monitoring with thermal protection,
+           and real-time throughput visualization.
+          Homepage: https://github.com/robindubreuil/niceblocks
+          EOF
+          cat > "$PKG_DIR/DEBIAN/postinst" << 'EOF'
+          #!/bin/sh
+          set -e
+          if [ "$1" = "configure" ]; then
+            systemctl daemon-reload >/dev/null 2>&1 || true
+          fi
+          EOF
+          chmod 755 "$PKG_DIR/DEBIAN/postinst"
+          dpkg-deb --build "$PKG_DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: niceblocks-${{ matrix.debarch }}
+          path: "*.deb"
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: niceblocks-*
+      - name: Collect .deb files
+        run: find artifacts -name '*.deb' -exec mv {} . \;
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: "*.deb"
+          generate_release_notes: true
