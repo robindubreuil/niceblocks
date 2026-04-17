@@ -73,7 +73,8 @@ type DiskTester struct {
 	// Log of significant events
 	events []string
 
-	// SMART monitoring baseline
+	// SMART monitoring
+	smartAvailable             bool       // Whether SMART data could be read for this device
 	baselineReallocatedSectors int64      // Initial reallocated sector count
 	lastKnownTemperature       int        // Last known temperature (always available)
 	lastSmartInfo              *SmartInfo // Cached SMART data
@@ -258,6 +259,10 @@ func (dt *DiskTester) calculateTempThresholds(idleTemp int) {
 
 // checkSMARTStatus checks drive health and returns (shouldPause, shouldAbort, currentSMART)
 func (dt *DiskTester) checkSMARTStatus() (bool, bool, *SmartInfo, error) {
+	if !dt.smartAvailable {
+		return false, false, nil, nil
+	}
+
 	smart, err := GetSmartInfo(dt.DevicePath)
 	if err != nil {
 		// Don't fail on SMART errors, just log them
@@ -313,6 +318,7 @@ func (dt *DiskTester) Run(ctx context.Context, progressChan chan<- Progress) {
 
 	initialSMART, err := GetSmartInfo(dt.DevicePath)
 	if err == nil {
+		dt.smartAvailable = true
 		dt.baselineReallocatedSectors = int64(initialSMART.DataValue)
 		dt.lastKnownTemperature = initialSMART.Temperature
 		dt.lastSmartInfo = initialSMART
@@ -320,10 +326,8 @@ func (dt *DiskTester) Run(ctx context.Context, progressChan chan<- Progress) {
 		dt.calculateTempThresholds(initialSMART.Temperature)
 		dt.logEvent(fmt.Sprintf("Ready. Protocol: %s, Model: %s", initialSMART.Protocol, initialSMART.Model))
 	} else {
-		msg := fmt.Sprintf("Failed to read SMART data: %v", err)
-		dt.logEvent("Error: " + msg)
-		dt.sendProgressUpdate(progressChan, "error", msg, "writing", 0, size, time.Now(), false)
-		return
+		dt.smartAvailable = false
+		dt.logEvent(fmt.Sprintf("SMART unavailable (%v). Running without temperature monitoring.", err))
 	}
 
 	startTime := time.Now()
