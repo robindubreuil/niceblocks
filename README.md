@@ -80,10 +80,6 @@ Pre-built `.deb` packages are available for:
 | ARM soft-float| `armel`    | Old NAS, legacy ARM devices   |
 | x86 (32-bit) | `i386`      | Legacy 32-bit systems        |
 
-## Local Fork of smart.go
-
-This project includes a local fork of [smart.go](https://github.com/anatol/smart.go) with a fix for SATA detection over USB-to-SATA bridges. See [`USB-SATA-FIX.md`](USB-SATA-FIX.md) for details.
-
 ## Development
 
 ```bash
